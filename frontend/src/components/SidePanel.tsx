@@ -74,7 +74,9 @@ class SidePanel extends React.Component<SidePanelProps> {
   public render(): React.JSX.Element {
     const { isBusy, isOpen, onClose, title, defaultWidth } = this.props;
     return (
-      <Slide in={isOpen} direction='left'>
+      // unmountOnExit: a closed panel must not leave a gray overlay / empty shell
+      // over the DAG (e.g. after Open Child Run → browser back to the parent run).
+      <Slide in={isOpen} direction='left' mountOnEnter unmountOnExit>
         {/* Wrapper div is required for MUI v5 Slide: Slide expects a single DOM element child that can receive a ref. */}
         <div>
           <Resizable
@@ -93,23 +95,21 @@ class SidePanel extends React.Component<SidePanelProps> {
               topRight: false,
             }}
           >
-            {isOpen && (
-              <div className={commonCss.page}>
-                <div className={commonCss.flex}>
-                  <Button aria-label='close' className={css.closeButton} onClick={onClose}>
-                    <CloseIcon />
-                  </Button>
-                  <div className={css.nodeName}>{title}</div>
-                </div>
-                <div className={commonCss.page}>
-                  {isBusy === true && (
-                    <CircularProgress size={30} className={commonCss.absoluteCenter} />
-                  )}
-
-                  <div className={commonCss.page}>{this.props.children}</div>
-                </div>
+            <div className={commonCss.page}>
+              <div className={commonCss.flex}>
+                <Button aria-label='close' className={css.closeButton} onClick={onClose}>
+                  <CloseIcon />
+                </Button>
+                <div className={css.nodeName}>{title}</div>
               </div>
-            )}
+              <div className={commonCss.page}>
+                {isBusy === true && (
+                  <CircularProgress size={30} className={commonCss.absoluteCenter} />
+                )}
+
+                <div className={commonCss.page}>{this.props.children}</div>
+              </div>
+            </div>
           </Resizable>
         </div>
       </Slide>

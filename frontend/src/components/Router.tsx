@@ -246,7 +246,14 @@ const Router: React.FC<RouterProps> = ({ configs }) => {
               key={i}
               exact={!route.notExact}
               path={path}
-              render={(props) => <RoutedPage key={props.location.key} route={route} />}
+              render={(props) => {
+                // Prefer run/recurring-run id over location.key so parent ↔ child
+                // navigation (Open Child Run / Back) always remounts page state.
+                const runId = props.match.params[RouteParams.runId];
+                const recurringRunId = props.match.params[RouteParams.recurringRunId];
+                const pageKey = runId || recurringRunId || props.location.key;
+                return <RoutedPage key={pageKey} route={route} />;
+              }}
             />
           );
         })}

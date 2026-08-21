@@ -25,8 +25,15 @@ vi.mock('@mui/material', async () => {
   const actual = await vi.importActual('@mui/material');
   return {
     ...actual,
-    Slide: ({ children, in: isIn }: { children: React.ReactElement; in: boolean }) =>
-      isIn ? children : null,
+    Slide: ({
+      children,
+      in: isIn,
+    }: {
+      children: React.ReactElement;
+      in: boolean;
+      mountOnEnter?: boolean;
+      unmountOnExit?: boolean;
+    }) => (isIn ? children : null),
   };
 });
 

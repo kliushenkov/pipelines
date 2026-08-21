@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
 import * as JsYaml from 'js-yaml';
 import { useQuery } from '@tanstack/react-query';
 import { V2beta1Run } from 'src/apisv2beta1/run';
@@ -34,7 +34,6 @@ export default function RunDetailsRouter(
 ) {
   const { updateBanner } = props;
   const runId = props.match.params[RouteParams.runId];
-  let pipelineManifest: string | undefined;
 
   // Retrieves v2 run detail.
   const {
@@ -46,9 +45,12 @@ export default function RunDetailsRouter(
     queryFn: () => Apis.runServiceApiV2.getRun(runId),
   });
 
-  if (getV2RunSuccess && v2Run && v2Run.pipeline_spec) {
-    pipelineManifest = JsYaml.dump(v2Run.pipeline_spec);
-  }
+  const pipelineManifest = useMemo(() => {
+    if (getV2RunSuccess && v2Run?.pipeline_spec) {
+      return JsYaml.dump(v2Run.pipeline_spec);
+    }
+    return undefined;
+  }, [getV2RunSuccess, v2Run?.pipeline_spec]);
 
   const pipelineId = v2Run?.pipeline_version_reference?.pipeline_id;
   const pipelineVersionId = v2Run?.pipeline_version_reference?.pipeline_version_id;
@@ -85,12 +87,36 @@ export default function RunDetailsRouter(
 
   const templateString = pipelineManifest ?? templateStrFromPipelineVersion;
 
-  if (getV2RunSuccess && v2Run && templateString) {
+  // Only render once the fetched run matches the route. Otherwise a cached parent
+  // run/template can paint on a child URL (or the reverse) and look "gray" because
+  // MLMD state does not match the graph.
+  const runMatchesRoute = !!v2Run?.run_id && v2Run.run_id === runId;
+
+  // Wait for a template that belongs to this run. Otherwise a cached child
+  // template can briefly (or sticky, if state is not reset) paint on the parent.
+  const templateReady =
+    !!pipelineManifest || (!!templateStrFromPipelineVersion && !templateStrIsLoading);
+
+  if (getV2RunSuccess && runMatchesRoute && v2Run && templateString && templateReady) {
     const isV2Pipeline = WorkflowUtils.isPipelineSpec(templateString);
     if (isV2Pipeline) {
-      return <RunDetailsV2 pipeline_job={templateString} run={v2Run} {...props} />;
+      // Remount when the run (and its version) changes so graph layers / selection
+      // from the previous run (e.g. Open Child Run) do not leak.
+      return (
+        <RunDetailsV2
+          key={`${runId}:${pipelineVersionId || ''}`}
+          {...props}
+          pipeline_job={templateString}
+          run={v2Run}
+        />
+      );
     }
   }
 
-  return <EnhancedRunDetails {...props} isLoading={runIsLoading || templateStrIsLoading} />;
+  return (
+    <EnhancedRunDetails
+      {...props}
+      isLoading={runIsLoading || templateStrIsLoading || (getV2RunSuccess && !runMatchesRoute)}
+    />
+  );
 }

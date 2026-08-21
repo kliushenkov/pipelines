@@ -101,6 +101,19 @@ export function RunDetailsV2(props: RunDetailsV2Props) {
   const [retriedCurrentRunState, setRetriedCurrentRunState] = useKeyedState(runStateKey, false);
   const runFinished = hasFinishedV2(run.state) && !retriedCurrentRunState;
 
+  // Adjust canvas state when the run or its pipeline template changes (Open Child Run →
+  // back). Declared during render so a late-arriving parent template still replaces a
+  // stale child DAG; useState(initial*) alone only applies on mount.
+  const [graphIdentity, setGraphIdentity] = useState(`${runId}::${pipelineJobStr}`);
+  const nextGraphIdentity = `${runId}::${pipelineJobStr}`;
+  if (graphIdentity !== nextGraphIdentity) {
+    setGraphIdentity(nextGraphIdentity);
+    setFlowElements(convertFlowElements(pipelineSpec));
+    setLayers(['root']);
+    setSelectedNode(null);
+    setSelectedNodeMlmdInfo(null);
+  }
+
   // Retrieves MLMD states from the MLMD store.
   const { isSuccess, isError, error, data } = useQuery<MlmdPackage, Error>({
     queryKey: queryKeys.mlmdPackage(runId),
@@ -189,7 +202,7 @@ export function RunDetailsV2(props: RunDetailsV2Props) {
 
   // Update buttons for managing runs.
   const [buttons] = useState(new Buttons(props, () => forceUpdate));
-  const [runIdFromParams] = useState(props.match.params[RouteParams.runId]);
+  const runIdFromParams = props.match.params[RouteParams.runId];
   useEffect(() => {
     updateToolBarActions(
       buttons,
