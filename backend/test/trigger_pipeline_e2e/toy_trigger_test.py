@@ -25,7 +25,6 @@ ChildOutputs = NamedTuple(
     [
         ("message", str),
         ("char_count", int),
-        ("char_count_squared", int),
     ],
 )
 
@@ -54,18 +53,24 @@ def greet_and_count(name: str) -> NamedTuple(
 
 @dsl.component(base_image="python:3.11-slim")
 def square_char_count(char_count: int) -> int:
-    """Downstream child task: simple calculation on greet_and_count output."""
+    """Parent task: square the char_count output collected from the child run."""
     squared = char_count * char_count
     print(f"char_count={char_count} -> squared={squared}")
     return squared
 
 
 @dsl.component(base_image="python:3.11-slim")
-def summarize_trigger(run_id: str, state: str, pipeline_version_id: str) -> str:
-    """Parent task after trigger: uses trigger outputs for a simple summary."""
+def summarize_trigger(
+    run_id: str,
+    state: str,
+    pipeline_version_id: str,
+    char_count_squared: int,
+) -> str:
+    """Parent task after trigger + square: uses trigger and child-derived outputs."""
     summary = (
         f"triggered child run_id={run_id} state={state} "
-        f"pipeline_version_id={pipeline_version_id}"
+        f"pipeline_version_id={pipeline_version_id} "
+        f"char_count_squared={char_count_squared}"
     )
     print(summary)
     return summary
@@ -80,11 +85,9 @@ def main():
     @dsl.pipeline(name=child_name)
     def child_pipeline(name: str = "world") -> ChildOutputs:
         result = greet_and_count(name=name)
-        squared = square_char_count(char_count=result.outputs["char_count"])
         return ChildOutputs(
             message=result.outputs["message"],
             char_count=result.outputs["char_count"],
-            char_count_squared=squared.output,
         )
 
     @dsl.pipeline(name=parent_name)
@@ -94,11 +97,17 @@ def main():
             arguments={"name": name},
             wait_for_completion=True,
             poke_interval_seconds=5,
+            collected_outputs={
+                "message": str,
+                "char_count": int,
+            },
         )
+        squared = square_char_count(char_count=trigger.outputs["char_count"])
         summarize_trigger(
             run_id=trigger.outputs["run_id"],
             state=trigger.outputs["state"],
             pipeline_version_id=trigger.outputs["pipeline_version_id"],
+            char_count_squared=squared.output,
         )
 
     child_path = "/tmp/trigger_e2e_child.yaml"
@@ -108,6 +117,8 @@ def main():
     parent_yaml = open(parent_path).read()
     if "triggerPipeline" not in parent_yaml:
         raise SystemExit("parent IR missing triggerPipeline")
+    if "char_count" not in parent_yaml:
+        raise SystemExit("parent IR missing collected output char_count")
     print(f"compiled parent IR bytes={len(parent_yaml)}")
 
     print("Uploading child pipeline...")

@@ -205,7 +205,7 @@ describe('RuntimeNodeDetailsV2', () => {
     );
 
     const openRun = await screen.findByText('Open Child Run');
-    expect(openRun.closest('a')).toHaveAttribute('href', '/runs/details/child-run-abc');
+    expect(openRun.closest('button')).toBeTruthy();
     // Explicit ID link in the banner
     const idLinks = screen.getAllByText('child-run-abc');
     expect(idLinks.length).toBeGreaterThanOrEqual(1);

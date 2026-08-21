@@ -113,6 +113,27 @@ func TestFindPipelineVersionByIdentity(t *testing.T) {
 }
 
 
+func TestCollectedOutputNames(t *testing.T) {
+	l := &TriggerPipelineLauncher{
+		component: &pipelinespec.ComponentSpec{
+			OutputDefinitions: &pipelinespec.ComponentOutputsSpec{
+				Parameters: map[string]*pipelinespec.ComponentOutputsSpec_ParameterSpec{
+					"run_id":             {},
+					"state":              {},
+					"pipeline_version_id": {},
+					"char_count":         {},
+					"message":            {},
+				},
+			},
+		},
+	}
+	got := l.collectedOutputNames()
+	assert.Equal(t, map[string]struct{}{
+		"char_count": {},
+		"message":    {},
+	}, got)
+}
+
 func TestTriggerPipelineLauncherOptionsValidate(t *testing.T) {
 	err := (&TriggerPipelineLauncherOptions{}).validate()
 	assert.Error(t, err)

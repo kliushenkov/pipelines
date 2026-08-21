@@ -901,6 +901,47 @@ func (c *Client) GetExecutions(ctx context.Context, ids []int64) ([]*pb.Executio
 	return res.Executions, nil
 }
 
+// GetExecutionsByPipelineRunID returns all MLMD executions for a pipeline run.
+func (c *Client) GetExecutionsByPipelineRunID(ctx context.Context, runID string) ([]*Execution, error) {
+	if runID == "" {
+		return nil, fmt.Errorf("GetExecutionsByPipelineRunID: runID is empty")
+	}
+	ctxRes, err := c.svc.GetContextByTypeAndName(ctx, &pb.GetContextByTypeAndNameRequest{
+		TypeName:    proto.String(pipelineRunContextTypeName),
+		ContextName: proto.String(runID),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("GetExecutionsByPipelineRunID(%q): get context: %w", runID, err)
+	}
+	runCtx := ctxRes.GetContext()
+	if runCtx == nil || runCtx.GetId() == 0 {
+		return nil, fmt.Errorf("GetExecutionsByPipelineRunID(%q): run context not found", runID)
+	}
+
+	var out []*Execution
+	var nextPageToken string
+	for {
+		res, err := c.svc.GetExecutionsByContext(ctx, &pb.GetExecutionsByContextRequest{
+			ContextId: runCtx.Id,
+			Options: &pb.ListOperationOptions{
+				MaxResultSize: proto.Int32(100),
+				NextPageToken: proto.String(nextPageToken),
+			},
+		})
+		if err != nil {
+			return nil, fmt.Errorf("GetExecutionsByPipelineRunID(%q): list executions: %w", runID, err)
+		}
+		for _, e := range res.GetExecutions() {
+			out = append(out, &Execution{Execution: e})
+		}
+		nextPageToken = res.GetNextPageToken()
+		if nextPageToken == "" {
+			break
+		}
+	}
+	return out, nil
+}
+
 // GetExecutionByTypeAndName retrieves an execution by its type and name from the service.
 // Returns the Execution object if found, or an error if not found or if the request fails.
 func (c *Client) GetExecutionByTypeAndName(ctx context.Context, typeName, name string) (*Execution, error) {

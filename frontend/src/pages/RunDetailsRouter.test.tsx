@@ -382,4 +382,28 @@ describe('RunDetailsRouter', () => {
       expect(screen.getByTestId('run-details-v2')).toBeInTheDocument();
     });
   });
+
+  it('keeps showing loading when cached run id does not match the route', async () => {
+    const parentRun: V2beta1Run = {
+      run_id: 'parent-run-id',
+      pipeline_spec: v2PipelineSpec,
+    };
+    // Simulate a stale cache hit for a different run than the route param.
+    getRunSpy.mockResolvedValue(parentRun);
+
+    render(
+      <CommonTestWrapper>
+        <RunDetailsRouter {...generateProps('child-run-id')} />
+      </CommonTestWrapper>,
+    );
+
+    await waitFor(() => {
+      expect(getRunSpy).toHaveBeenCalledWith('child-run-id');
+    });
+
+    const element = screen.getByTestId('enhanced-run-details');
+    expect(element).toBeInTheDocument();
+    expect(element.dataset.isLoading).toBe('true');
+    expect(screen.queryByTestId('run-details-v2')).not.toBeInTheDocument();
+  });
 });

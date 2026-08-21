@@ -263,6 +263,7 @@ func (l *TriggerPipelineLauncher) Execute(ctx context.Context) (err error) {
 		state = string(*childRun.State)
 	}
 
+	extraOutputs := map[string]*structpb.Value{}
 	if l.trigger.GetWaitForCompletion() {
 		poke := time.Duration(l.trigger.GetPokeIntervalSeconds()) * time.Second
 		if poke <= 0 {
@@ -276,12 +277,17 @@ func (l *TriggerPipelineLauncher) Execute(ctx context.Context) (err error) {
 			state = string(*childRun.State)
 		}
 		if childRun.State == nil || *childRun.State != runmodel.V2beta1RuntimeStateSUCCEEDED {
-			_ = l.publish(ctx, createdExecution, childRun.RunID, versionID, state, pb.Execution_FAILED)
+			_ = l.publish(ctx, createdExecution, childRun.RunID, versionID, state, nil, pb.Execution_FAILED)
 			return fmt.Errorf("child run %s finished with state %s (expected SUCCEEDED)", childRun.RunID, state)
+		}
+		extraOutputs, err = l.collectChildOutputs(ctx, childRun.RunID)
+		if err != nil {
+			_ = l.publish(ctx, createdExecution, childRun.RunID, versionID, state, nil, pb.Execution_FAILED)
+			return err
 		}
 	}
 
-	return l.publish(ctx, createdExecution, childRun.RunID, versionID, state, pb.Execution_COMPLETE)
+	return l.publish(ctx, createdExecution, childRun.RunID, versionID, state, extraOutputs, pb.Execution_COMPLETE)
 }
 
 func (l *TriggerPipelineLauncher) getPipelineByName(name string) (*pipelinemodel.V2beta1Pipeline, error) {
@@ -473,6 +479,7 @@ func (l *TriggerPipelineLauncher) publish(
 	ctx context.Context,
 	execution *metadata.Execution,
 	childRunID, versionID, state string,
+	extraOutputs map[string]*structpb.Value,
 	mlmdState pb.Execution_State,
 ) error {
 	if execution.GetExecution().CustomProperties == nil {
@@ -487,10 +494,85 @@ func (l *TriggerPipelineLauncher) publish(
 		triggerOutputState:             structpb.NewStringValue(state),
 		triggerOutputPipelineVersionID: structpb.NewStringValue(versionID),
 	}
+	for k, v := range extraOutputs {
+		if k == triggerOutputRunID || k == triggerOutputState || k == triggerOutputPipelineVersionID {
+			continue
+		}
+		outputs[k] = v
+	}
 	if err := l.metadataClient.PublishExecution(ctx, execution, outputs, nil, mlmdState); err != nil {
 		return fmt.Errorf("failed to publish trigger pipeline execution: %w", err)
 	}
 	return nil
+}
+
+// collectChildOutputs reads child pipeline parameter outputs from MLMD for names
+// declared on the trigger component's output_definitions (beyond system outputs).
+func (l *TriggerPipelineLauncher) collectChildOutputs(
+	ctx context.Context,
+	childRunID string,
+) (map[string]*structpb.Value, error) {
+	wanted := l.collectedOutputNames()
+	if len(wanted) == 0 {
+		return nil, nil
+	}
+
+	executions, err := l.metadataClient.GetExecutionsByPipelineRunID(ctx, childRunID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load MLMD executions for child run %s: %w", childRunID, err)
+	}
+
+	found := map[string]*structpb.Value{}
+	// Prefer leaf container outputs; later matches overwrite earlier ones so the
+	// most recently published producer wins when names collide.
+	for _, exec := range executions {
+		_, outputs, err := exec.GetParameters()
+		if err != nil {
+			return nil, err
+		}
+		for name := range wanted {
+			if v, ok := outputs[name]; ok {
+				found[name] = v
+			}
+		}
+	}
+
+	missing := make([]string, 0)
+	for name := range wanted {
+		if _, ok := found[name]; !ok {
+			missing = append(missing, name)
+		}
+	}
+	if len(missing) > 0 {
+		return nil, fmt.Errorf(
+			"child run %s missing collected outputs %v (declared on trigger component)",
+			childRunID, missing,
+		)
+	}
+	glog.Infof("Collected %d child outputs from run %s: %v", len(found), childRunID, keysOf(found))
+	return found, nil
+}
+
+func (l *TriggerPipelineLauncher) collectedOutputNames() map[string]struct{} {
+	out := map[string]struct{}{}
+	params := l.component.GetOutputDefinitions().GetParameters()
+	for name := range params {
+		switch name {
+		case triggerOutputRunID, triggerOutputState, triggerOutputPipelineVersionID:
+			continue
+		default:
+			out[name] = struct{}{}
+		}
+	}
+	return out
+}
+
+func keysOf(m map[string]*structpb.Value) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	return keys
 }
 
 func (l *TriggerPipelineLauncher) waitForTerminal(ctx context.Context, runID string, poke time.Duration) (*runmodel.V2beta1Run, error) {

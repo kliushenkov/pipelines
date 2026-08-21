@@ -88,6 +88,45 @@ class TestTriggerPipeline(unittest.TestCase):
         self.assertIn('pipeline_version_id',
                       comp.output_definitions.parameters)
 
+    def test_collected_outputs_declared_on_component(self):
+
+        @dsl.pipeline(name='parent-with-collected-outputs')
+        def parent_pipeline():
+            task = dsl.trigger_pipeline(
+                pipeline_name='child-with-outputs',
+                arguments={'name': 'x'},
+                collected_outputs={
+                    'char_count': int,
+                    'message': str,
+                },
+            )
+            assert task.outputs['char_count'] is not None
+            assert task.outputs['message'] is not None
+
+        pipeline_spec = parent_pipeline.pipeline_spec
+        comp_keys = [k for k in pipeline_spec.components.keys() if 'trigger' in k]
+        self.assertTrue(comp_keys)
+        comp = pipeline_spec.components[comp_keys[0]]
+        self.assertIn('char_count', comp.output_definitions.parameters)
+        self.assertIn('message', comp.output_definitions.parameters)
+        # Built-in outputs still present.
+        self.assertIn('run_id', comp.output_definitions.parameters)
+
+    def test_collected_outputs_requires_wait(self):
+        with self.assertRaisesRegex(ValueError, 'wait_for_completion'):
+            trigger_pipeline_node.trigger_pipeline(
+                pipeline_name='child',
+                wait_for_completion=False,
+                collected_outputs={'char_count': int},
+            )
+
+    def test_collected_outputs_rejects_system_key(self):
+        with self.assertRaisesRegex(ValueError, 'conflicts'):
+            trigger_pipeline_node.trigger_pipeline(
+                pipeline_name='child',
+                collected_outputs={'run_id': str},
+            )
+
     def test_export_via_dsl(self):
         self.assertTrue(callable(dsl.trigger_pipeline))
 

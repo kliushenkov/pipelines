@@ -200,9 +200,18 @@ function TaskNodeDetail({
               {childRunId}
             </Link>
           </div>
-          <Link to={childRunPath} style={{ textDecoration: 'none' }}>
-            <Button variant='contained'>Open Child Run</Button>
-          </Link>
+          <Button
+            variant='contained'
+            onClick={() => {
+              // Hard navigation + reload so React Flow / SidePanel / MLMD state
+              // from the parent cannot leak onto the child run page (and vice versa
+              // when using browser Back from a soft SPA transition).
+              window.location.assign(`#${childRunPath}`);
+              window.location.reload();
+            }}
+          >
+            Open Child Run
+          </Button>
         </div>
       )}
       <MD2Tabs

@@ -75,9 +75,8 @@ typing, launcher integration, and UI linkage.
 
 1. Fire-and-forget UX polish (`failed_states` / `allowed_states` like Airflow).
 2. Idempotency / `skip_when_already_exists`.
-3. Passing child **artifacts** / pipeline parameter outputs back through the
-   CreateRun API into the parent graph (use object storage + `dsl.importer`, or
-   consume trigger outputs `run_id` / `state` / `pipeline_version_id` only).
+3. Passing child **artifacts** back into the parent graph (use object storage +
+   `dsl.importer`). Parameter outputs are supported via `collected_outputs`.
 4. Dedicated React Flow canvas node type `TRIGGER` (MVP reuses `EXECUTION`).
 5. KFP local (Subprocess/Docker) execution of trigger nodes in the first
    iteration.
@@ -222,12 +221,24 @@ Parent IR (small)
         ├─ MLMD execution.outputs = { run_id, state, pipeline_version_id }
         ├─ MLMD custom props      = { child_run_id, child_pipeline_version_id }
         └─ Child Run (independent WF + MLMD context)
-              └─ child tasks / child pipeline outputs (not pulled into parent)
+              └─ child tasks; selected parameter outputs copied into trigger
+                 via collected_outputs (artifacts not pulled)
 ```
 
-Parent downstream tasks may only depend on trigger outputs (`run_id`, `state`,
-`pipeline_version_id`). Child-internal outputs remain visible on the child run’s
-Input/Output panel.
+Parent downstream tasks may depend on trigger outputs (`run_id`, `state`,
+`pipeline_version_id`) and, when declared via `collected_outputs=...`, on
+selected child pipeline parameter outputs that the launcher copies from the
+child run’s MLMD into the trigger execution after wait.
+
+```python
+trigger = dsl.trigger_pipeline(
+    pipeline_name='child',
+    arguments={'name': name},
+    wait_for_completion=True,
+    collected_outputs={'char_count': int, 'message': str},
+)
+square_char_count(char_count=trigger.outputs['char_count'])
+```
 
 ## Frontend Considerations
 
@@ -272,8 +283,8 @@ new executor type.
 
 1. Should parent labels become first-class `Run.labels` if/when the API adds them?
 2. Should fire-and-forget (no wait) be the default for some orchestrator patterns?
-3. Should a later iteration pull selected child pipeline outputs into parent
-   parameters (beyond `run_id` / `state` / `pipeline_version_id`)?
+3. Should fire-and-forget (no wait) remain unsupported together with
+   `collected_outputs` (today they are mutually exclusive)?
 
 ## Implementation History
 
